@@ -1,0 +1,12 @@
+.map {
+    border: medium solid #999;
+    margin: 10px 0 0 20px;
+    background: #D5E3FF;
+}
+
+.county {
+    fill: #ccc;
+    stroke: #fff;
+    stroke-width: 1px;
+    stroke-linecap: round;
+}
