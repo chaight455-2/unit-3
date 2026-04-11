@@ -26,6 +26,9 @@
         color: attrArray[8], //color/size attribute: pct_food_insecure
     };
 
+    //active state filter: "all", "MN", or "WI"
+    var stateFilter = "all";
+
     //chart frame dimensions — pseudo-global for access in changeAttribute()
     var chartWidth = window.innerWidth * 0.5 - 25,
         chartHeight = 460,
@@ -115,11 +118,12 @@
             //add legend to the map
             createLegend(map, colorScale);
 
-            //add page title and dropdown menus to navbar
+            //add page title, dropdown menus, and state filter to navbar
             createTitle();
             createDropdown(csvData, "color", "Color/Size");
             createDropdown(csvData, "x", "X Axis");
             createDropdown(csvData, "y", "Y Axis");
+            createStateFilter(csvData);
         }
     } //end of setMap()
 
@@ -257,6 +261,9 @@
 
         //create axes
         createChartAxes(chart, yScale, xScale);
+
+        //add linear regression line and R value
+        updateRegressionLine(chart, csvData, xScale, yScale);
     }
 
     //function to calculate the minimum and maximum values for expressed variables
@@ -391,16 +398,77 @@
         }
     }
 
+    //function to compute and draw a linear regression line with R value
+    function updateRegressionLine(chart, csvData, xScale, yScale) {
+        //remove any existing regression elements
+        chart.selectAll(".regression-line").remove();
+        chart.selectAll(".r-value").remove();
+
+        //build paired arrays of x and y values, skipping missing data
+        var xVals = [], yVals = [];
+        for (var i = 0; i < csvData.length; i++) {
+            var xv = parseFloat(csvData[i][expressed.x]);
+            var yv = parseFloat(csvData[i][expressed.y]);
+            if (!isNaN(xv) && !isNaN(yv)) {
+                xVals.push(xv);
+                yVals.push(yv);
+            }
+        }
+
+        var n = xVals.length;
+        if (n < 2) return;
+
+        //calculate sums for least-squares regression
+        var sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+        for (var j = 0; j < n; j++) {
+            sumX += xVals[j];
+            sumY += yVals[j];
+            sumXY += xVals[j] * yVals[j];
+            sumX2 += xVals[j] * xVals[j];
+            sumY2 += yVals[j] * yVals[j];
+        }
+
+        //slope and intercept
+        var slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        var intercept = (sumY - slope * sumX) / n;
+
+        //Pearson correlation coefficient (r)
+        var numerator = n * sumXY - sumX * sumY;
+        var denominator = Math.sqrt(
+            (n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY)
+        );
+        var r = denominator === 0 ? 0 : numerator / denominator;
+
+        //determine line endpoints from the x-axis domain
+        var xDomain = xScale.domain();
+        var x1 = xDomain[0], x2 = xDomain[1];
+        var y1 = slope * x1 + intercept;
+        var y2 = slope * x2 + intercept;
+
+        //draw the regression line
+        chart
+            .append("line")
+            .attr("class", "regression-line")
+            .attr("x1", xScale(x1))
+            .attr("y1", yScale(y1))
+            .attr("x2", xScale(x2))
+            .attr("y2", yScale(y2));
+
+        //display the R value in the top-right area of the chart
+        chart
+            .append("text")
+            .attr("class", "r-value")
+            .attr("x", chartWidth - rightPadding - 5)
+            .attr("y", topPadding + 15)
+            .attr("text-anchor", "end")
+            .text("r = " + r.toFixed(3));
+    }
+
     //function to highlight enumeration units and bubbles
     function highlight(props) {
-        //select matching elements by fips class (prefixed with "f") and add "selected" class
-        var selected = d3
-            .selectAll(".f" + props.fips)
-            .attr("class", function () {
-                var elemClasses = this.classList;
-                elemClasses += " selected";
-                return elemClasses;
-            })
+        //add "selected" class to matching elements and raise them
+        d3.selectAll(".f" + props.fips)
+            .classed("selected", true)
             .raise();
 
         //create info label
@@ -410,32 +478,31 @@
     //function to dehighlight enumeration units and bubbles
     function dehighlight(props) {
         //remove "selected" class from matching elements
-        var selected = d3
-            .selectAll(".f" + props.fips)
-            .attr("class", function () {
-                var elemClasses = this.classList;
-                elemClasses.remove("selected");
-                return elemClasses;
-            });
+        d3.selectAll(".f" + props.fips)
+            .classed("selected", false);
 
         //remove info label
-        d3.select(".infolabel").remove();
+        d3.selectAll(".infolabel").remove();
     }
 
     //function to create dynamic label
     function setLabel(props) {
+        //remove any existing label before creating a new one
+        d3.selectAll(".infolabel").remove();
+
         //label content: attribute value and county name
         var labelAttribute =
             "<h1>" + props[expressed.color] +
             "</h1><b>" + props.county + " — " +
             getAttrLabel(expressed.color) + " (" + getAttrUnit(expressed.color) + ")</b>";
 
-        //create info label div
+        //create info label div, hidden until moveLabel positions it
         var infolabel = d3
             .select("body")
             .append("div")
             .attr("class", "infolabel")
             .attr("id", props.fips + "_label")
+            .style("opacity", 0)
             .html(labelAttribute);
     }
 
@@ -461,7 +528,8 @@
 
         d3.select(".infolabel")
             .style("left", x + "px")
-            .style("top", y + "px");
+            .style("top", y + "px")
+            .style("opacity", 1);
     }
 
     //function to create page title in the navbar
@@ -491,14 +559,7 @@
                 changeAttribute(this.value, expressedAttribute, csvData);
             });
 
-        //add initial option showing the current expressed attribute label
-        var titleOption = dropdown
-            .append("option")
-            .attr("class", "titleOption")
-            .attr("disabled", "true")
-            .text(getAttrLabel(expressed[expressedAttribute]));
-
-        //add attribute name options
+        //add attribute name options, marking the current one as selected
         var attrOptions = dropdown
             .selectAll("attrOptions")
             .data(attrObjects)
@@ -507,9 +568,81 @@
             .attr("value", function (d) {
                 return d.attr;
             })
+            .property("selected", function (d) {
+                return d.attr === expressed[expressedAttribute];
+            })
             .text(function (d) {
                 return d.label;
             });
+    }
+
+    //function to create state filter buttons in the navbar
+    function createStateFilter(csvData) {
+        var filterGroup = d3
+            .select(".navbar")
+            .append("div")
+            .attr("class", "state-filter");
+
+        //add label
+        filterGroup
+            .append("span")
+            .attr("class", "dropdown-label")
+            .text("Filter: ");
+
+        //add a button for each filter option
+        var options = ["all", "MN", "WI"];
+        var labels = ["All", "Minnesota", "Wisconsin"];
+        for (var i = 0; i < options.length; i++) {
+            filterGroup
+                .append("button")
+                .attr("class", "filter-btn" + (options[i] === "all" ? " active" : ""))
+                .attr("data-state", options[i])
+                .text(labels[i])
+                .on("click", function () {
+                    var state = d3.select(this).attr("data-state");
+                    stateFilter = state;
+
+                    //update active button styling
+                    d3.selectAll(".filter-btn").classed("active", false);
+                    d3.select(this).classed("active", true);
+
+                    //apply the filter to map and chart
+                    applyStateFilter(csvData);
+                });
+        }
+    }
+
+    //function to show/hide counties and bubbles based on the active state filter
+    function applyStateFilter(csvData) {
+        //determine which FIPS codes belong to each state (MN: 27xxx, WI: 55xxx)
+        d3.selectAll(".county")
+            .transition()
+            .duration(300)
+            .style("opacity", function (d) {
+                if (stateFilter === "all") return 1;
+                var fips = String(d.id);
+                var state = fips.substring(0, 2) === "27" ? "MN" : "WI";
+                return state === stateFilter ? 1 : 0.08;
+            });
+
+        d3.selectAll(".bubble")
+            .transition()
+            .duration(300)
+            .style("opacity", function (d) {
+                if (stateFilter === "all") return 1;
+                return d.state === stateFilter ? 1 : 0.08;
+            });
+
+        //update regression line to reflect only visible data
+        var filteredData = csvData;
+        if (stateFilter !== "all") {
+            filteredData = csvData.filter(function (d) {
+                return d.state === stateFilter;
+            });
+        }
+        var xScale = createXScale(csvData);
+        var yScale = createYScale(csvData);
+        updateRegressionLine(d3.select(".chart"), filteredData, xScale, yScale);
     }
 
     //dropdown change event handler
@@ -570,5 +703,17 @@
 
         //update the legend on the map
         createLegend(d3.select(".map"), colorScale);
+
+        //update regression line and R value, respecting state filter
+        var filteredData = csvData;
+        if (stateFilter !== "all") {
+            filteredData = csvData.filter(function (d) {
+                return d.state === stateFilter;
+            });
+        }
+        updateRegressionLine(d3.select(".chart"), filteredData, xScale, yScale);
+
+        //reapply state filter opacity after transitions
+        applyStateFilter(csvData);
     }
 })(); //last line of main.js
