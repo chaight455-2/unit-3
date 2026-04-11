@@ -466,6 +466,10 @@
 
     //function to highlight enumeration units and bubbles
     function highlight(props) {
+        //clear any previous highlight first to prevent stale selections
+        d3.selectAll(".selected").classed("selected", false);
+        d3.selectAll(".infolabel").remove();
+
         //add "selected" class to matching elements and raise them
         d3.selectAll(".f" + props.fips)
             .classed("selected", true)
@@ -477,9 +481,8 @@
 
     //function to dehighlight enumeration units and bubbles
     function dehighlight(props) {
-        //remove "selected" class from matching elements
-        d3.selectAll(".f" + props.fips)
-            .classed("selected", false);
+        //remove "selected" class from all elements
+        d3.selectAll(".selected").classed("selected", false);
 
         //remove info label
         d3.selectAll(".infolabel").remove();
@@ -667,6 +670,13 @@
                 } else {
                     return "#ccc";
                 }
+            })
+            //maintain state filter opacity
+            .style("opacity", function (d) {
+                if (stateFilter === "all") return 1;
+                var fips = String(d.id);
+                var state = fips.substring(0, 2) === "27" ? "MN" : "WI";
+                return state === stateFilter ? 1 : 0.08;
             });
 
         //update bubbles on the chart with animated transition
@@ -691,6 +701,11 @@
             })
             .attr("cy", function (d) {
                 return yScale(parseFloat(d[expressed.y]));
+            })
+            //maintain state filter opacity
+            .style("opacity", function (d) {
+                if (stateFilter === "all") return 1;
+                return d.state === stateFilter ? 1 : 0.08;
             });
 
         //update axes
@@ -712,8 +727,5 @@
             });
         }
         updateRegressionLine(d3.select(".chart"), filteredData, xScale, yScale);
-
-        //reapply state filter opacity after transitions
-        applyStateFilter(csvData);
     }
 })(); //last line of main.js
