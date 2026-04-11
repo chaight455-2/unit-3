@@ -1,17 +1,24 @@
 //wrap everything in a self-executing anonymous function to move to local scope
 (function () {
     //pseudo-global variables
-    var attrArray = [
-        "premature_death_ypll_rate",
-        "pm25_avg_concentration",
-        "pct_excessive_drinking",
-        "pct_rural",
-        "food_environment_index",
-        "pct_severe_housing_problems",
-        "avg_poor_physical_health_days",
-        "avg_poor_mental_health_days",
-        "pct_food_insecure",
+    //array of attribute objects with human-readable labels and units
+    var attrObjects = [
+        { attr: "premature_death_ypll_rate", label: "Premature Death Rate", unit: "Years per 100,000" },
+        { attr: "pm25_avg_concentration", label: "PM2.5 Concentration", unit: "µg/m³" },
+        { attr: "pct_excessive_drinking", label: "Excessive Drinking", unit: "%" },
+        { attr: "pct_rural", label: "Rural Population", unit: "%" },
+        { attr: "food_environment_index", label: "Food Environment Index", unit: "Score (0–10)" },
+        { attr: "pct_severe_housing_problems", label: "Severe Housing Problems", unit: "%" },
+        { attr: "avg_poor_physical_health_days", label: "Poor Physical Health Days", unit: "Days/Month" },
+        { attr: "avg_poor_mental_health_days", label: "Poor Mental Health Days", unit: "Days/Month" },
+        { attr: "pct_food_insecure", label: "Food Insecurity", unit: "%" },
     ];
+
+    //derive a simple array of attribute names for data joins
+    var attrArray = attrObjects.map(function (obj) {
+        return obj.attr;
+    });
+
     //create an object for different expressed variables
     var expressed = {
         x: attrArray[1], //x attribute: pm25_avg_concentration
@@ -19,18 +26,47 @@
         color: attrArray[8], //color/size attribute: pct_food_insecure
     };
 
+    //chart frame dimensions — pseudo-global for access in changeAttribute()
+    var chartWidth = window.innerWidth * 0.5 - 25,
+        chartHeight = 460,
+        leftPadding = 70,
+        rightPadding = 20,
+        topPadding = 20,
+        bottomPadding = 60;
+
+    //responsive: stack vertically on small screens
+    if (window.innerWidth < 700) {
+        chartWidth = window.innerWidth - 40;
+    }
+
+    //helper: look up the human-readable label for an attribute name
+    function getAttrLabel(attrName) {
+        for (var i = 0; i < attrObjects.length; i++) {
+            if (attrObjects[i].attr === attrName) return attrObjects[i].label;
+        }
+        return attrName;
+    }
+
+    //helper: look up the unit string for an attribute name
+    function getAttrUnit(attrName) {
+        for (var i = 0; i < attrObjects.length; i++) {
+            if (attrObjects[i].attr === attrName) return attrObjects[i].unit;
+        }
+        return "";
+    }
+
     //begin script when window loads
     window.onload = setMap;
 
     //set up choropleth map
     function setMap() {
-        //map frame dimensions
-        var width = window.innerWidth * 0.5 - 25,
-            height = 460;
+        //map frame dimensions — use pseudo-global chartWidth for consistency
+        var width = chartWidth,
+            height = chartHeight;
 
-        //create new svg container for the map
+        //create new svg container for the map inside visContainer
         var map = d3
-            .select("body")
+            .select("#visContainer")
             .append("svg")
             .attr("class", "map")
             .attr("width", width)
@@ -75,6 +111,15 @@
 
             //add coordinated visualization to the map
             setChart(csvData, colorScale);
+
+            //add legend to the map
+            createLegend(map, colorScale);
+
+            //add page title and dropdown menus to navbar
+            createTitle();
+            createDropdown(csvData, "color", "Color/Size");
+            createDropdown(csvData, "x", "X Axis");
+            createDropdown(csvData, "y", "Y Axis");
         }
     } //end of setMap()
 
@@ -91,6 +136,9 @@
 
                 //where primary keys match, transfer csv data to geojson properties object
                 if (geojsonKey == csvKey) {
+                    //transfer county name and fips for labeling
+                    geojsonProps.county = csvRow.county;
+                    geojsonProps.fips = csvRow.fips;
                     //assign all attributes and values
                     attrArray.forEach(function (attr) {
                         var val = parseFloat(csvRow[attr]); //get csv attribute value
@@ -136,7 +184,7 @@
             .enter()
             .append("path")
             .attr("class", function (d) {
-                return "county " + d.id;
+                return "county f" + d.id;
             })
             .attr("d", path)
             .style("fill", function (d) {
@@ -147,30 +195,29 @@
                 } else {
                     return "#ccc";
                 }
-            });
+            })
+            .on("mouseover", function (event, d) {
+                highlight(d.properties);
+            })
+            .on("mouseout", function (event, d) {
+                dehighlight(d.properties);
+            })
+            .on("mousemove", moveLabel);
     }
 
     //function to create coordinated bubble chart
     function setChart(csvData, colorScale) {
-        //chart frame dimensions
-        var chartWidth = window.innerWidth * 0.5 - 25,
-            chartHeight = 460,
-            leftPadding = 70,
-            rightPadding = 20,
-            topPadding = 20,
-            bottomPadding = 60;
-
-        //create a second svg element to hold the bubble chart
+        //create a second svg element to hold the bubble chart inside visContainer
         var chart = d3
-            .select("body")
+            .select("#visContainer")
             .append("svg")
             .attr("width", chartWidth)
             .attr("height", chartHeight)
             .attr("class", "chart");
 
         //create scales
-        var yScale = createYScale(csvData, chartHeight, topPadding, bottomPadding);
-        var xScale = createXScale(csvData, chartWidth, leftPadding, rightPadding);
+        var yScale = createYScale(csvData);
+        var xScale = createXScale(csvData);
 
         //set circles for each county
         var circles = chart
@@ -179,7 +226,7 @@
             .enter()
             .append("circle")
             .attr("class", function (d) {
-                return "bubble " + d.fips;
+                return "bubble f" + d.fips;
             })
             .attr("r", function (d) {
                 var minRadius = 2.5;
@@ -199,10 +246,17 @@
             })
             .attr("fill", function (d) {
                 return colorScale(parseFloat(d[expressed.color]));
-            });
+            })
+            .on("mouseover", function (event, d) {
+                highlight(d);
+            })
+            .on("mouseout", function (event, d) {
+                dehighlight(d);
+            })
+            .on("mousemove", moveLabel);
 
         //create axes
-        createChartAxes(chart, chartWidth, chartHeight, leftPadding, bottomPadding, yScale, xScale);
+        createChartAxes(chart, yScale, xScale);
     }
 
     //function to calculate the minimum and maximum values for expressed variables
@@ -219,8 +273,8 @@
         return [min - adjustment, max + adjustment];
     }
 
-    //function to create y scale
-    function createYScale(csvData, chartHeight, topPadding, bottomPadding) {
+    //function to create y scale using pseudo-global dimensions
+    function createYScale(csvData) {
         var dataMinMax = getDataValues(csvData, expressed.y);
         return d3
             .scaleLinear()
@@ -228,8 +282,8 @@
             .domain([dataMinMax[1], dataMinMax[0]]);
     }
 
-    //function to create x scale
-    function createXScale(csvData, chartWidth, leftPadding, rightPadding) {
+    //function to create x scale using pseudo-global dimensions
+    function createXScale(csvData) {
         var dataMinMax = getDataValues(csvData, expressed.x);
         return d3
             .scaleLinear()
@@ -237,8 +291,8 @@
             .domain([dataMinMax[0], dataMinMax[1]]);
     }
 
-    //create axes
-    function createChartAxes(chart, chartWidth, chartHeight, leftPadding, bottomPadding, yScale, xScale) {
+    //create axes using pseudo-global dimensions
+    function createChartAxes(chart, yScale, xScale) {
         //create axis generators
         var yAxisScale = d3.axisLeft().scale(yScale);
         var xAxisScale = d3.axisBottom().scale(xScale);
@@ -259,20 +313,262 @@
         //y-axis label
         chart
             .append("text")
-            .attr("class", "axisLabel")
+            .attr("class", "axisLabel yLabel")
             .attr("transform", "rotate(-90)")
             .attr("x", -chartHeight / 2)
             .attr("y", 15)
             .attr("text-anchor", "middle")
-            .text(expressed.y);
+            .text(getAttrLabel(expressed.y));
 
         //x-axis label
         chart
             .append("text")
-            .attr("class", "axisLabel")
+            .attr("class", "axisLabel xLabel")
             .attr("x", chartWidth / 2)
             .attr("y", chartHeight - 10)
             .attr("text-anchor", "middle")
-            .text(expressed.x);
+            .text(getAttrLabel(expressed.x));
+    }
+
+    //function to create a dynamic color legend on the map
+    function createLegend(map, colorScale) {
+        //remove any existing legend
+        map.selectAll(".legend").remove();
+
+        //legend dimensions and position
+        var legendWidth = 20,
+            legendHeight = 15,
+            legendX = 10,
+            legendY = chartHeight - 120;
+
+        //get quantile breakpoints from the color scale
+        var quantiles = colorScale.quantiles();
+        var colors = colorScale.range();
+
+        //create legend group
+        var legend = map
+            .append("g")
+            .attr("class", "legend")
+            .attr("transform", "translate(" + legendX + "," + legendY + ")");
+
+        //add legend title
+        legend
+            .append("text")
+            .attr("class", "legendTitle")
+            .attr("x", 0)
+            .attr("y", -5)
+            .text(getAttrLabel(expressed.color));
+
+        //add colored rectangles and labels for each class
+        for (var i = 0; i < colors.length; i++) {
+            //determine class range label
+            var label;
+            if (i === 0) {
+                label = "< " + quantiles[0].toFixed(1);
+            } else if (i === colors.length - 1) {
+                label = "> " + quantiles[i - 1].toFixed(1);
+            } else {
+                label = quantiles[i - 1].toFixed(1) + " – " + quantiles[i].toFixed(1);
+            }
+
+            //color swatch
+            legend
+                .append("rect")
+                .attr("x", 0)
+                .attr("y", i * (legendHeight + 3))
+                .attr("width", legendWidth)
+                .attr("height", legendHeight)
+                .style("fill", colors[i])
+                .style("stroke", "#999");
+
+            //class label
+            legend
+                .append("text")
+                .attr("class", "legendText")
+                .attr("x", legendWidth + 5)
+                .attr("y", i * (legendHeight + 3) + legendHeight - 3)
+                .text(label);
+        }
+    }
+
+    //function to highlight enumeration units and bubbles
+    function highlight(props) {
+        //select matching elements by fips class (prefixed with "f") and add "selected" class
+        var selected = d3
+            .selectAll(".f" + props.fips)
+            .attr("class", function () {
+                var elemClasses = this.classList;
+                elemClasses += " selected";
+                return elemClasses;
+            })
+            .raise();
+
+        //create info label
+        setLabel(props);
+    }
+
+    //function to dehighlight enumeration units and bubbles
+    function dehighlight(props) {
+        //remove "selected" class from matching elements
+        var selected = d3
+            .selectAll(".f" + props.fips)
+            .attr("class", function () {
+                var elemClasses = this.classList;
+                elemClasses.remove("selected");
+                return elemClasses;
+            });
+
+        //remove info label
+        d3.select(".infolabel").remove();
+    }
+
+    //function to create dynamic label
+    function setLabel(props) {
+        //label content: attribute value and county name
+        var labelAttribute =
+            "<h1>" + props[expressed.color] +
+            "</h1><b>" + props.county + " — " +
+            getAttrLabel(expressed.color) + " (" + getAttrUnit(expressed.color) + ")</b>";
+
+        //create info label div
+        var infolabel = d3
+            .select("body")
+            .append("div")
+            .attr("class", "infolabel")
+            .attr("id", props.fips + "_label")
+            .html(labelAttribute);
+    }
+
+    //function to move info label with mouse
+    function moveLabel(event) {
+        //guard: do nothing if label has not been created yet
+        var labelNode = d3.select(".infolabel").node();
+        if (!labelNode) return;
+
+        //get label width for overflow testing
+        var labelWidth = labelNode.getBoundingClientRect().width;
+
+        //default and backup coordinates
+        var x1 = event.clientX + 10,
+            y1 = event.clientY - 75,
+            x2 = event.clientX - labelWidth - 10,
+            y2 = event.clientY + 25;
+
+        //horizontal label coordinate, testing for overflow
+        var x = event.clientX > window.innerWidth - labelWidth - 20 ? x2 : x1;
+        //vertical label coordinate, testing for overflow
+        var y = event.clientY < 75 ? y2 : y1;
+
+        d3.select(".infolabel")
+            .style("left", x + "px")
+            .style("top", y + "px");
+    }
+
+    //function to create page title in the navbar
+    function createTitle() {
+        var pageTitle = d3
+            .select(".navbar")
+            .append("h1")
+            .attr("class", "pageTitle")
+            .text("Health & Environment in WI & MN");
+    }
+
+    //function to create a dropdown menu for attribute selection
+    function createDropdown(csvData, expressedAttribute, menuLabel) {
+        //add dropdown label
+        var label = d3
+            .select(".navbar")
+            .append("p")
+            .attr("class", "dropdown-label")
+            .text(menuLabel + ": ");
+
+        //add select element
+        var dropdown = d3
+            .select(".navbar")
+            .append("select")
+            .attr("class", "dropdown")
+            .on("change", function () {
+                changeAttribute(this.value, expressedAttribute, csvData);
+            });
+
+        //add initial option showing the current expressed attribute label
+        var titleOption = dropdown
+            .append("option")
+            .attr("class", "titleOption")
+            .attr("disabled", "true")
+            .text(getAttrLabel(expressed[expressedAttribute]));
+
+        //add attribute name options
+        var attrOptions = dropdown
+            .selectAll("attrOptions")
+            .data(attrObjects)
+            .enter()
+            .append("option")
+            .attr("value", function (d) {
+                return d.attr;
+            })
+            .text(function (d) {
+                return d.label;
+            });
+    }
+
+    //dropdown change event handler
+    function changeAttribute(attribute, expressedAttribute, csvData) {
+        //change the expressed attribute
+        expressed[expressedAttribute] = attribute;
+
+        //recreate scales
+        var colorScale = makeColorScale(csvData);
+        var yScale = createYScale(csvData);
+        var xScale = createXScale(csvData);
+
+        //recolor enumeration units on the map with animated transition
+        var counties = d3
+            .selectAll(".county")
+            .transition()
+            .duration(1000)
+            .style("fill", function (d) {
+                var value = d.properties[expressed.color];
+                if (value) {
+                    return colorScale(d.properties[expressed.color]);
+                } else {
+                    return "#ccc";
+                }
+            });
+
+        //update bubbles on the chart with animated transition
+        var circles = d3
+            .selectAll(".bubble")
+            .transition()
+            .duration(1000)
+            //recolor circles to match the map
+            .attr("fill", function (d) {
+                return colorScale(parseFloat(d[expressed.color]));
+            })
+            //resize circles based on new color attribute
+            .attr("r", function (d) {
+                var minRadius = 2.5;
+                var radius =
+                    Math.pow(parseFloat(d[expressed.color]), 0.5715) * minRadius;
+                return radius;
+            })
+            //reposition circles on x and y axes
+            .attr("cx", function (d) {
+                return xScale(parseFloat(d[expressed.x]));
+            })
+            .attr("cy", function (d) {
+                return yScale(parseFloat(d[expressed.y]));
+            });
+
+        //update axes
+        d3.select(".xaxis").call(d3.axisBottom(xScale));
+        d3.select(".yaxis").call(d3.axisLeft(yScale));
+
+        //update axis labels
+        d3.select(".xLabel").text(getAttrLabel(expressed.x));
+        d3.select(".yLabel").text(getAttrLabel(expressed.y));
+
+        //update the legend on the map
+        createLegend(d3.select(".map"), colorScale);
     }
 })(); //last line of main.js

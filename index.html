@@ -3,17 +3,33 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width">
-            <title></title>
+        <title>Health &amp; Environment in Wisconsin &amp; Minnesota</title>
 
-        <!--put your external stylesheet links here-->
+        <!--external stylesheet-->
         <link rel="stylesheet" href="css/style.css">
-
-         <!--you can also place internal styles here;
-             place these within <style> tags-->
-        
     </head>
 
     <body>
+        <!--navbar for title and dropdown menus-->
+        <div class="navbar"></div>
+
+        <!--container for map and chart-->
+        <div id="visContainer"></div>
+
+        <!--supplemental content: data sources and narrative-->
+        <div id="context">
+            <p class="source">
+                Data Source: <a href="https://www.countyhealthrankings.org/" target="_blank">County Health Rankings &amp; Roadmaps</a>,
+                University of Wisconsin Population Health Institute, 2025.
+            </p>
+            <p class="narrative">
+                Explore the relationship between environmental quality, food access, and health outcomes
+                across 159 counties in Wisconsin and Minnesota. Use the dropdown menus above to change the
+                mapped attribute and the variables plotted on each axis of the bubble chart. Hover over a
+                county or bubble to compare values across both views.
+            </p>
+        </div>
+
         <script type="text/javascript" src="https://d3js.org/d3.v7.min.js"></script>
         <script type="text/javascript" src="https://unpkg.com/topojson@3"></script>
         <script type="text/javascript" src="js/main.js"></script>
