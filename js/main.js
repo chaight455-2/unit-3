@@ -180,6 +180,18 @@
         return colorScale;
     }
 
+    //function to create size scale based on min/max of expressed color attribute
+    function makeSizeScale(data) {
+        var values = data.map(function (d) {
+            return parseFloat(d[expressed.color]);
+        }).filter(function (v) {
+            return !isNaN(v);
+        });
+        var min = d3.min(values);
+        var max = d3.max(values);
+        return d3.scaleSqrt().domain([min, max]).range([3, 15]);
+    }
+
     function setEnumerationUnits(counties, map, path, colorScale) {
         //add counties to map
         var countyPaths = map
@@ -222,6 +234,7 @@
         //create scales
         var yScale = createYScale(csvData);
         var xScale = createXScale(csvData);
+        var sizeScale = makeSizeScale(csvData);
 
         //set circles for each county
         var circles = chart
@@ -233,12 +246,7 @@
                 return "bubble f" + d.fips;
             })
             .attr("r", function (d) {
-                var minRadius = 2.5;
-                //calculate the radius based on expressed value using Flannery's compensation
-                var radius =
-                    Math.pow(parseFloat(d[expressed.color]), 0.5715) *
-                    minRadius;
-                return radius;
+                return sizeScale(parseFloat(d[expressed.color]));
             })
             //place circles horizontally on the chart
             .attr("cx", function (d) {
@@ -657,6 +665,7 @@
         var colorScale = makeColorScale(csvData);
         var yScale = createYScale(csvData);
         var xScale = createXScale(csvData);
+        var sizeScale = makeSizeScale(csvData);
 
         //recolor enumeration units on the map with animated transition
         var counties = d3
@@ -690,10 +699,7 @@
             })
             //resize circles based on new color attribute
             .attr("r", function (d) {
-                var minRadius = 2.5;
-                var radius =
-                    Math.pow(parseFloat(d[expressed.color]), 0.5715) * minRadius;
-                return radius;
+                return sizeScale(parseFloat(d[expressed.color]));
             })
             //reposition circles on x and y axes
             .attr("cx", function (d) {
